@@ -106,16 +106,18 @@ coco_refinedet = {
 }
 
 visdrone_refinedet = {
-    'num_classes': 12,
-    'lr_steps': (280000, 360000, 400000), # worth thinking
-    'max_iter': 400000, # worth thinking
-    'feature_maps': [38, 19, 10, 5, 3, 1],
-    'min_dim': 300,
-    'steps': [8, 16, 32, 64, 100, 300],
-    'min_sizes': [21, 45, 99, 153, 207, 261],
-    'max_sizes': [45, 99, 153, 207, 261, 315],
-    'aspect_ratios': [[2], [2, 3], [2, 3], [2, 3], [2], [2]],
-    'variance': [0.1, 0.2],
-    'clip': True,
-    'name': 'VISDRONE',
+    '320': {
+        'num_classes': 13,
+        'lr_steps': (60000, 80000, 100000),
+        'max_iter': 100000,
+        'feature_maps': [64, 32, 16, 8],
+        'min_dim': 512,
+        'steps': [8, 16, 32, 64],
+        'min_sizes': [32, 64, 128, 256],
+        'max_sizes': [],
+        'aspect_ratios': [[2], [2], [2], [2]],
+        'variance': [0.1, 0.2],
+        'clip': True,
+        'name': 'RefineDet_VISDRONE_320',
+    }
 }

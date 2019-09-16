@@ -4,6 +4,8 @@ Original author: Francisco Massa
 https://github.com/fmassa/vision/blob/voc_dataset/torchvision/datasets/voc.py
 
 Updated by: Ellis Brown, Max deGroot
+Modified for VisDrone datset by Evgeny Markin
+
 """
 from .config import HOME
 import os.path as osp
@@ -48,23 +50,35 @@ class VISDRONEAnnotationTransform(object):
             a list containing lists of bounding boxes  [bbox coords, class ind]
         """
         res = []
-        f = open(target, 'r')
-        f1 = f.readlines()
-        for l in f1:
-            y = l.split(',')
-            difficult = int(y[4]) == 1
-            if not self.keep_difficult and difficult:
-                continue
+        with open(target,  'r') as f:
+            f1 = f.readlines()
+            for l in f1:
+                y = l.split(',')
+                if int(y[5]) == 0:
+                    continue
+                bndbox = []
+                bndbox += [int(y[0])/width, int(y[1])/height, (int(y[0])+int(y[2]))/width, (int(y[1])+int(y[3]))/height, int(y[5])]
+                res += [bndbox]
 
-            bndbox = []
-            bndbox += [int(y[0])/width, int(y[1])/height, (int(y[0])+int(y[2]))/width, (int(y[1])+int(y[3]))/height, int(y[5])]
-            res += [bndbox]
-        f.close()
+
+        #f = open(target, 'r')
+        #f1 = f.readlines()
+        #for l in f1:
+            #y = l.split(',')
+            #difficult = int(y[4]) == 1
+            #if not self.keep_difficult and difficult:
+                #continue
+
+            #bndbox = []
+            #bndbox += [int(y[0])/width, int(y[1])/height, (int(y[0])+int(y[2]))/width, (int(y[1])+int(y[3]))/height, int(y[5])]
+            #res += [bndbox]
+        #f.close()
+        # print(res)
         return res  # [[xmin, ymin, xmax, ymax, label_ind], ... ]
 
 
 class VISDRONEDetection(data.Dataset):
-    """VOC Detection Dataset Object
+    """VisDrone Detection Dataset Object
 
     input is image, target is annotation
 
@@ -80,26 +94,26 @@ class VISDRONEDetection(data.Dataset):
             (default: 'VOC2007')
     """
 
-    def __init__(self, root,
+    def __init__(self,
                  image_set='train',
                  transform=None, target_transform=VISDRONEAnnotationTransform(),
                  dataset_name='VOC0712'):
-        self.root = root
+        # self.root = root
         self.image_set = image_set
         self.transform = transform
         self.target_transform = target_transform
         self.name = dataset_name
-        self._annopath = osp.join(VISDRONE_ROOT, 'VisDrone2019_', '%s', 'annotations') % (image_set)
-        self._imgpath = osp.join(VISDRONE_ROOT, 'VisDrone2019_', '%s', 'images') % (image_set)
+        self._annopath = osp.join(VISDRONE_ROOT, 'VisDrone2019_%s', 'annotations') % (self.image_set)
+        self._imgpath = osp.join(VISDRONE_ROOT, 'VisDrone2019_%s', 'images') % (self.image_set)
         self.ids = list()
         for filename in os.listdir(self._annopath):
             self.ids.append(filename[0:-4])
-        self._annopath = osp.join(self._annopath, '%s', '.txt')
-        self._imgpath = osp.join(self._imgpath, '%s', '.jpg')
-        #for (year, name) in image_sets:
-            #rootpath = osp.join(self.root, 'VOC' + year)
-            #for line in open(osp.join(rootpath, 'ImageSets', 'Main', name + '.txt')):
-                #self.ids.append((rootpath, line.strip()))
+        self._annopath = osp.join(self._annopath, '%s.txt')
+        self._imgpath = osp.join(self._imgpath, '%s.jpg')
+        # for (year, name) in image_sets:
+            # rootpath = osp.join(self.root, 'VOC' + year)
+            # for line in open(osp.join(rootpath, 'ImageSets', 'Main', name + '.txt')):
+                # self.ids.append((rootpath, line.strip()))
 
     def __getitem__(self, index):
         im, gt, h, w = self.pull_item(index)
@@ -111,13 +125,15 @@ class VISDRONEDetection(data.Dataset):
 
     def pull_item(self, index):
         img_id = self.ids[index]
-
-        target = ET.parse(self._annopath % img_id).getroot()
+        # print(img_id)
+        # target = ET.parse(self._annopath % img_id).getroot()
+        target = self._annopath % img_id
         img = cv2.imread(self._imgpath % img_id)
         height, width, channels = img.shape
 
         if self.target_transform is not None:
             target = self.target_transform(target, width, height)
+        # print(target, width, height, sep='|')
 
         if self.transform is not None:
             target = np.array(target)
@@ -156,7 +172,8 @@ class VISDRONEDetection(data.Dataset):
                 eg: ('001718', [('dog', (96, 13, 438, 332))])
         '''
         img_id = self.ids[index]
-        anno = ET.parse(self._annopath % img_id).getroot()
+        # anno = ET.parse(self._annopath % img_id).getroot()
+        anno = self._annopath % img_id
         gt = self.target_transform(anno, 1, 1)
         return img_id[1], gt
 

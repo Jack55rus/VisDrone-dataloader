@@ -3,6 +3,7 @@ from utils.augmentations import SSDAugmentation
 from layers.modules import RefineDetMultiBoxLoss
 #from ssd import build_ssd
 from models.refinedet import build_refinedet
+# from data import VISDRONEDetection
 import os
 import sys
 import time
@@ -23,12 +24,10 @@ def str2bool(v):
 parser = argparse.ArgumentParser(
     description='Single Shot MultiBox Detector Training With Pytorch')
 train_set = parser.add_mutually_exclusive_group()
-parser.add_argument('--dataset', default='VOC', choices=['VOC', 'COCO', 'VISDRONE'],
+parser.add_argument('--dataset', default='VISDRONE', choices=['VOC', 'COCO', 'VISDRONE'],
                     type=str, help='VOC, COCO or VISDRONE')
 parser.add_argument('--input_size', default='320', choices=['320', '512'],
                     type=str, help='RefineDet320 or RefineDet512')
-parser.add_argument('--dataset_root', default=VISDRONE_ROOT,
-                    help='Dataset root directory path')
 parser.add_argument('--basenet', default='./weights/vgg16_reducedfc.pth',
                     help='Pretrained base model')
 parser.add_argument('--batch_size', default=32, type=int,
@@ -83,13 +82,11 @@ def train():
         dataset = COCODetection(root=args.dataset_root,
                                 transform=SSDAugmentation(cfg['min_dim'],
                                                           MEANS))'''
-    elif args.dataset == 'VOC':
+    elif args.dataset == 'VISDRONE':
         '''if args.dataset_root == COCO_ROOT:
             parser.error('Must specify dataset if specifying dataset_root')'''
-        cfg = voc_refinedet[args.input_size]
-        dataset = VOCDetection(root=args.dataset_root,
-                               transform=SSDAugmentation(cfg['min_dim'],
-                                                         MEANS))
+        cfg = visdrone_refinedet[args.input_size]
+        dataset = VISDRONEDetection(transform=SSDAugmentation(cfg['min_dim'], MEANS))
 
     if args.visdom:
         import visdom
