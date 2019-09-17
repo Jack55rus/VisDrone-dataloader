@@ -174,7 +174,7 @@ class VISDRONEDetection(data.Dataset):
         # anno = ET.parse(self._annopath % img_id).getroot()
         anno = self._annopath % img_id
         gt = self.target_transform(anno, 1, 1)
-        return img_id[1], gt
+        return img_id, gt
 
     def pull_tensor(self, index):
         '''Returns the original image at an index in tensor form

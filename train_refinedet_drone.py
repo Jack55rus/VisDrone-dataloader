@@ -26,7 +26,7 @@ parser = argparse.ArgumentParser(
 train_set = parser.add_mutually_exclusive_group()
 parser.add_argument('--dataset', default='VISDRONE', choices=['VOC', 'COCO', 'VISDRONE'],
                     type=str, help='VOC, COCO or VISDRONE')
-parser.add_argument('--input_size', default='320', choices=['320', '512'],
+parser.add_argument('--input_size', default='700', choices=['320', '512'],
                     type=str, help='RefineDet320 or RefineDet512')
 parser.add_argument('--basenet', default='./weights/vgg16_reducedfc.pth',
                     help='Pretrained base model')
@@ -87,12 +87,13 @@ def train():
             parser.error('Must specify dataset if specifying dataset_root')'''
         cfg = visdrone_refinedet[args.input_size]
         dataset = VISDRONEDetection(transform=SSDAugmentation(cfg['min_dim'], MEANS))
-
+        # dataset = VISDRONEDetection(transform=SSDAugmentation(700, MEANS))
     if args.visdom:
         import visdom
         viz = visdom.Visdom()
 
     refinedet_net = build_refinedet('train', cfg['min_dim'], cfg['num_classes'])
+    # refinedet_net = build_refinedet('train', 700, cfg['num_classes'])
     net = refinedet_net
     print(net)
     #input()
