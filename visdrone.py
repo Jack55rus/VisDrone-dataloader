@@ -17,7 +17,7 @@ import numpy as np
 import os
 
 
-VISDRONE_CLASSES = (  # always index 0
+VISDRONE_CLASSES = (  'ignored',
     'pedestrian', 'people', 'bicycle', 'car',
     'van', 'truck', 'tricycle', 'awningtri', 'bus',
     'motorb', 'others')

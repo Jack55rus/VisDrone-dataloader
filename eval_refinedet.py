@@ -9,10 +9,8 @@ import torch
 import torch.nn as nn
 import torch.backends.cudnn as cudnn
 from torch.autograd import Variable
-# from data import VOC_ROOT, VOCAnnotationTransform, VOCDetection, BaseTransform
-# from data import VOC_CLASSES as labelmap
-from data import VISDRONEDetection, VISDRONEAnnotationTransform, VISDRONE_ROOT, BaseTransform
-from data import VISDRONE_CLASSES as labelmap
+from data import VOC_ROOT, VOCAnnotationTransform, VOCDetection, BaseTransform
+from data import VOC_CLASSES as labelmap
 import torch.utils.data as data
 
 from models.refinedet import build_refinedet
@@ -42,7 +40,7 @@ def str2bool(v):
 parser = argparse.ArgumentParser(
     description='Single Shot MultiBox Detector Evaluation')
 parser.add_argument('--trained_model',
-                    default='weights/RefineDet320_VISDRONE_final.pth', type=str,
+                    default='weights/ssd300_mAP_77.43_v2.pth', type=str,
                     help='Trained state_dict file path to open')
 parser.add_argument('--save_folder', default='eval/', type=str,
                     help='File path to save results')
@@ -52,7 +50,7 @@ parser.add_argument('--top_k', default=5, type=int,
                     help='Further restrict the number of predictions to parse')
 parser.add_argument('--cuda', default=True, type=str2bool,
                     help='Use cuda to train model')
-parser.add_argument('--visdrone_root', default=VISDRONE_ROOT,
+parser.add_argument('--voc_root', default=VOC_ROOT,
                     help='Location of VOC root directory')
 parser.add_argument('--cleanup', default=True, type=str2bool,
                     help='Cleanup and remove results files following eval')
@@ -74,18 +72,14 @@ if torch.cuda.is_available():
 else:
     torch.set_default_tensor_type('torch.FloatTensor')
 
-# annopath = os.path.join(args.visdrone_root, 'VOC2007', 'Annotations', '%s.xml')
-# imgpath = os.path.join(args.visdrone_root, 'VOC2007', 'JPEGImages', '%s.jpg')
-# imgsetpath = os.path.join(args.visdrone_root, 'VOC2007', 'ImageSets',
-                          # 'Main', '{:s}.txt')
-annopath = os.path.join(args.visdrone_root, 'VisDrone2019_val', 'annotations', '%s.txt')
-imgpath = os.path.join(args.visdrone_root, 'VisDrone2019_val', 'images', '%s.jpg')
-imgsetpath = os.path.join(args.visdrone_root, 'VisDrone2019_val', 'images')
-
-# YEAR = '2007'
-# devkit_path = args.visdrone_root + 'VOC' + YEAR
+annopath = os.path.join(args.voc_root, 'VOC2007', 'Annotations', '%s.xml')
+imgpath = os.path.join(args.voc_root, 'VOC2007', 'JPEGImages', '%s.jpg')
+imgsetpath = os.path.join(args.voc_root, 'VOC2007', 'ImageSets',
+                          'Main', '{:s}.txt')
+YEAR = '2007'
+devkit_path = args.voc_root + 'VOC' + YEAR
 dataset_mean = (104, 117, 123)
-set_type = 'val'
+set_type = 'test'
 
 
 class Timer(object):
@@ -113,23 +107,23 @@ class Timer(object):
             return self.diff
 
 
-def parse_erc(filename):
+def parse_rec(filename):
+    """ Parse a PASCAL VOC xml file """
+    tree = ET.parse(filename)
     objects = []
-    dictOfclasses = {i: labelmap[i] for i in range(0, len(labelmap))}
-    with open(filename,  'r') as f:
-        f1 = f.readlines()
-        for l in f1:
-            y = l.split(',')
-            if int(y[5]) == 0:
-                continue
-            obj_struct = {}
-            obj_struct['name'] = dictOfclasses[y[5]]
-            obj_struct['truncated'] = int(y[6])
-            obj_struct['bbox'] = [int(y[0]) - 1,
-                                  int(y[1]) - 1,
-                                  int(y[0]) + int(y[2]) - 1,
-                                  int(y[1]) + int(y[3]) - 1]
-            objects.append(obj_struct)
+    for obj in tree.findall('object'):
+        obj_struct = {}
+        obj_struct['name'] = obj.find('name').text
+        obj_struct['pose'] = obj.find('pose').text
+        obj_struct['truncated'] = int(obj.find('truncated').text)
+        obj_struct['difficult'] = int(obj.find('difficult').text)
+        bbox = obj.find('bndbox')
+        obj_struct['bbox'] = [int(bbox.find('xmin').text) - 1,
+                              int(bbox.find('ymin').text) - 1,
+                              int(bbox.find('xmax').text) - 1,
+                              int(bbox.find('ymax').text) - 1]
+        objects.append(obj_struct)
+
     return objects
 
 
@@ -142,18 +136,17 @@ def get_output_dir(name, phase):
     filedir = os.path.join(name, phase)
     if not os.path.exists(filedir):
         os.makedirs(filedir)
-    return filedir # this func stays the same
+    return filedir
 
 
 def get_voc_results_file_template(image_set, cls):
     # VOCdevkit/VOC2007/results/det_test_aeroplane.txt
-    # /data/VISDRONE/results/det_test_aeroplane.txt
     filename = 'det_' + image_set + '_%s.txt' % (cls)
-    filedir = os.path.join(VISDRONE_ROOT, 'results')
+    filedir = os.path.join(devkit_path, 'results')
     if not os.path.exists(filedir):
         os.makedirs(filedir)
     path = os.path.join(filedir, filename)
-    return path # changed output detections directory a little bit
+    return path
 
 
 def write_voc_results_file(all_boxes, dataset):
@@ -163,7 +156,7 @@ def write_voc_results_file(all_boxes, dataset):
         with open(filename, 'wt') as f:
             for im_ind, index in enumerate(dataset.ids):
                 dets = all_boxes[cls_ind+1][im_ind]
-                if dets.size(0) == 0:
+                if dets == []:
                     continue
                 # the VOCdevkit expects 1-based indices
                 for k in range(dets.shape[0]):
@@ -174,7 +167,7 @@ def write_voc_results_file(all_boxes, dataset):
 
 
 def do_python_eval(output_dir='output', use_07=True):
-    cachedir = os.path.join(VISDRONE_ROOT, 'annotations_cache')
+    cachedir = os.path.join(devkit_path, 'annotations_cache')
     aps = []
     # The PASCAL VOC metric changed in 2010
     use_07_metric = use_07
@@ -184,7 +177,7 @@ def do_python_eval(output_dir='output', use_07=True):
     for i, cls in enumerate(labelmap):
         filename = get_voc_results_file_template(set_type, cls)
         rec, prec, ap = voc_eval(
-           filename, annopath, imgsetpath, cls, cachedir,
+           filename, annopath, imgsetpath.format(set_type), cls, cachedir,
            ovthresh=0.5, use_07_metric=use_07_metric)
         aps += [ap]
         print('AP for {} = {:.4f}'.format(cls, ap))
@@ -272,14 +265,9 @@ cachedir: Directory for caching the annotations
         os.mkdir(cachedir)
     cachefile = os.path.join(cachedir, 'annots.pkl')
     # read list of images
-    imagenames = list()
-    for filename in os.listdir(imagesetfile):
-        imagenames += [filename[0:-4]]
-
-    # with open(imagesetfile, 'r') as f:
-        # lines = f.readlines()
-    # imagenames = [x.strip() for x in lines]
-
+    with open(imagesetfile, 'r') as f:
+        lines = f.readlines()
+    imagenames = [x.strip() for x in lines]
     if not os.path.isfile(cachefile):
         # load annots
         recs = {}
@@ -303,11 +291,11 @@ cachedir: Directory for caching the annotations
     for imagename in imagenames:
         R = [obj for obj in recs[imagename] if obj['name'] == classname]
         bbox = np.array([x['bbox'] for x in R])
-        # difficult = np.array([x['difficult'] for x in R]).astype(np.bool)
+        difficult = np.array([x['difficult'] for x in R]).astype(np.bool)
         det = [False] * len(R)
         npos = npos + sum(~difficult)
         class_recs[imagename] = {'bbox': bbox,
-                                 # 'difficult': difficult,
+                                 'difficult': difficult,
                                  'det': det}
 
     # read dets
@@ -390,7 +378,7 @@ def test_net(save_folder, net, cuda, dataset, transform, top_k,
 
     # timers
     _t = {'im_detect': Timer(), 'misc': Timer()}
-    output_dir = get_output_dir('VisDrone_refinedet', set_type)
+    output_dir = get_output_dir('ssd300_120000', set_type)
     det_file = os.path.join(output_dir, 'detections.pkl')
 
     for i in range(num_images):
@@ -408,7 +396,7 @@ def test_net(save_folder, net, cuda, dataset, transform, top_k,
             dets = detections[0, j, :]
             mask = dets[:, 0].gt(0.).expand(5, dets.size(0)).t()
             dets = torch.masked_select(dets, mask).view(-1, 5)
-            if dets.size(0) == 0: # was dets == []
+            if dets.size(0) == 0:
                 continue
             boxes = dets[:, 1:]
             boxes[:, 0] *= w
@@ -438,17 +426,15 @@ def evaluate_detections(box_list, output_dir, dataset):
 
 if __name__ == '__main__':
     # load net
-    print('len(labelmap) = ', len(labelmap))
-    num_classes = len(labelmap) + 1                      # +1 for background; 13 in total considering "ignored" as a separate class
-    print('in main() num_classes = ', num_classes)
+    num_classes = len(labelmap) + 1                      # +1 for background
     net = build_refinedet('test', int(args.input_size), num_classes)            # initialize SSD
     net.load_state_dict(torch.load(args.trained_model))
     net.eval()
     print('Finished loading model!')
     # load data
-    dataset = VISDRONEDetection(set_type,
+    dataset = VOCDetection(args.voc_root, [('2007', set_type)],
                            BaseTransform(int(args.input_size), dataset_mean),
-                           VISDRONEAnnotationTransform())
+                           VOCAnnotationTransform())
     if args.cuda:
         net = net.cuda()
         cudnn.benchmark = True
