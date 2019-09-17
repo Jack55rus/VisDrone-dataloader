@@ -84,7 +84,7 @@ imgpath = os.path.join(args.visdrone_root, 'VisDrone2019_val', 'images', '%s.jpg
 # YEAR = '2007'
 # devkit_path = args.visdrone_root + 'VOC' + YEAR
 dataset_mean = (104, 117, 123)
-set_type = 'test'
+set_type = 'val'
 
 
 class Timer(object):
@@ -133,7 +133,7 @@ def parse_rec(filename):
 
 def parse_erc(filename):
     objects = []
-    dictOfclasses = {i+1: labelmap[i] for i in range(0, len(labelmap))}
+    dictOfclasses = {i: labelmap[i] for i in range(0, len(labelmap))}
     with open(filename,  'r') as f:
         f1 = f.readlines()
         for l in f1:
@@ -170,7 +170,7 @@ def get_voc_results_file_template(image_set, cls):
     if not os.path.exists(filedir):
         os.makedirs(filedir)
     path = os.path.join(filedir, filename)
-    return path
+    return path # changed output detections directory a little bit
 
 
 def write_voc_results_file(all_boxes, dataset):
@@ -180,7 +180,7 @@ def write_voc_results_file(all_boxes, dataset):
         with open(filename, 'wt') as f:
             for im_ind, index in enumerate(dataset.ids):
                 dets = all_boxes[cls_ind+1][im_ind]
-                if dets == []:
+                if dets.size(0) == 0:
                     continue
                 # the VOCdevkit expects 1-based indices
                 for k in range(dets.shape[0]):
@@ -191,7 +191,7 @@ def write_voc_results_file(all_boxes, dataset):
 
 
 def do_python_eval(output_dir='output', use_07=True):
-    cachedir = os.path.join(devkit_path, 'annotations_cache')
+    cachedir = os.path.join(VISDRONE_ROOT, 'annotations_cache')
     aps = []
     # The PASCAL VOC metric changed in 2010
     use_07_metric = use_07
@@ -402,7 +402,7 @@ def test_net(save_folder, net, cuda, dataset, transform, top_k,
 
     # timers
     _t = {'im_detect': Timer(), 'misc': Timer()}
-    output_dir = get_output_dir('ssd300_120000', set_type)
+    output_dir = get_output_dir('VisDrone_refinedet', set_type)
     det_file = os.path.join(output_dir, 'detections.pkl')
 
     for i in range(num_images):
@@ -420,7 +420,7 @@ def test_net(save_folder, net, cuda, dataset, transform, top_k,
             dets = detections[0, j, :]
             mask = dets[:, 0].gt(0.).expand(5, dets.size(0)).t()
             dets = torch.masked_select(dets, mask).view(-1, 5)
-            if dets.size(0) == 0:
+            if dets.size(0) == 0: # was dets == []
                 continue
             boxes = dets[:, 1:]
             boxes[:, 0] *= w
@@ -450,13 +450,13 @@ def evaluate_detections(box_list, output_dir, dataset):
 
 if __name__ == '__main__':
     # load net
-    num_classes = len(labelmap) + 1                      # +1 for background
+    num_classes = len(labelmap) + 1                      # +1 for background; 13 in total considering "ignored" as a separate class
     net = build_refinedet('test', int(args.input_size), num_classes)            # initialize SSD
     net.load_state_dict(torch.load(args.trained_model))
     net.eval()
     print('Finished loading model!')
     # load data
-    dataset = VOCDetection(args.visdrone_root, [('2007', set_type)],
+    dataset = VOCDetection(args.visdrone_root, set_type,
                            BaseTransform(int(args.input_size), dataset_mean),
                            VOCAnnotationTransform())
     if args.cuda:
