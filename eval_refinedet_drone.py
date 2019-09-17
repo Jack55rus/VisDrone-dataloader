@@ -9,8 +9,10 @@ import torch
 import torch.nn as nn
 import torch.backends.cudnn as cudnn
 from torch.autograd import Variable
-from data import VOC_ROOT, VOCAnnotationTransform, VOCDetection, BaseTransform
-from data import VOC_CLASSES as labelmap
+# from data import VOC_ROOT, VOCAnnotationTransform, VOCDetection, BaseTransform
+# from data import VOC_CLASSES as labelmap
+from data import VISDRONEDetection, VISDRONEAnnotationTransform, VISDRONE_ROOT, BaseTransform
+from data import VISDRONE_CLASSES as labelmap
 import torch.utils.data as data
 
 from models.refinedet import build_refinedet
@@ -50,7 +52,7 @@ parser.add_argument('--top_k', default=5, type=int,
                     help='Further restrict the number of predictions to parse')
 parser.add_argument('--cuda', default=True, type=str2bool,
                     help='Use cuda to train model')
-parser.add_argument('--voc_root', default=VOC_ROOT,
+parser.add_argument('--visdrone_root', default=VISDRONE_ROOT,
                     help='Location of VOC root directory')
 parser.add_argument('--cleanup', default=True, type=str2bool,
                     help='Cleanup and remove results files following eval')
@@ -72,12 +74,15 @@ if torch.cuda.is_available():
 else:
     torch.set_default_tensor_type('torch.FloatTensor')
 
-annopath = os.path.join(args.voc_root, 'VOC2007', 'Annotations', '%s.xml')
-imgpath = os.path.join(args.voc_root, 'VOC2007', 'JPEGImages', '%s.jpg')
-imgsetpath = os.path.join(args.voc_root, 'VOC2007', 'ImageSets',
-                          'Main', '{:s}.txt')
-YEAR = '2007'
-devkit_path = args.voc_root + 'VOC' + YEAR
+# annopath = os.path.join(args.visdrone_root, 'VOC2007', 'Annotations', '%s.xml')
+# imgpath = os.path.join(args.visdrone_root, 'VOC2007', 'JPEGImages', '%s.jpg')
+# imgsetpath = os.path.join(args.visdrone_root, 'VOC2007', 'ImageSets',
+                          # 'Main', '{:s}.txt')
+annopath = os.path.join(args.visdrone_root, 'VisDrone2019_val', 'annotations', '%s.txt')
+imgpath = os.path.join(args.visdrone_root, 'VisDrone2019_val', 'images', '%s.jpg')
+
+# YEAR = '2007'
+# devkit_path = args.visdrone_root + 'VOC' + YEAR
 dataset_mean = (104, 117, 123)
 set_type = 'test'
 
@@ -126,6 +131,24 @@ def parse_rec(filename):
 
     return objects
 
+def parse_erc(filename):
+    objects = []
+    dictOfclasses = {i+1: labelmap[i] for i in range(0, len(labelmap))}
+    with open(filename,  'r') as f:
+        f1 = f.readlines()
+        for l in f1:
+            y = l.split(',')
+            if int(y[5]) == 0:
+                continue
+            obj_struct = {}
+            obj_struct['name'] = dictOfclasses[y[5]]
+            obj_struct['bbox'] = [int(y[0]) - 1,
+                                  int(y[1]) - 1,
+                                  int(y[0]) + int(y[2]) - 1,
+                                  int(y[1]) + int(y[3]) - 1]
+            objects.append(obj_struct)
+    return objects
+
 
 def get_output_dir(name, phase):
     """Return the directory where experimental artifacts are placed.
@@ -136,13 +159,14 @@ def get_output_dir(name, phase):
     filedir = os.path.join(name, phase)
     if not os.path.exists(filedir):
         os.makedirs(filedir)
-    return filedir
+    return filedir # this func stays the same
 
 
 def get_voc_results_file_template(image_set, cls):
     # VOCdevkit/VOC2007/results/det_test_aeroplane.txt
+    # /data/VISDRONE/results/det_test_aeroplane.txt
     filename = 'det_' + image_set + '_%s.txt' % (cls)
-    filedir = os.path.join(devkit_path, 'results')
+    filedir = os.path.join(VISDRONE_ROOT, 'results')
     if not os.path.exists(filedir):
         os.makedirs(filedir)
     path = os.path.join(filedir, filename)
@@ -432,7 +456,7 @@ if __name__ == '__main__':
     net.eval()
     print('Finished loading model!')
     # load data
-    dataset = VOCDetection(args.voc_root, [('2007', set_type)],
+    dataset = VOCDetection(args.visdrone_root, [('2007', set_type)],
                            BaseTransform(int(args.input_size), dataset_mean),
                            VOCAnnotationTransform())
     if args.cuda:
