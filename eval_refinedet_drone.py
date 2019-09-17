@@ -120,10 +120,10 @@ def parse_rec(filename):
         f1 = f.readlines()
         for l in f1:
             y = l.split(',')
-            if int(y[5]) == 0:
+            if int(y[4]) == 0:
                 continue
             obj_struct = {}
-            obj_struct['name'] = dictOfclasses[y[5]]
+            obj_struct['name'] = dictOfclasses[int(y[5])]
             obj_struct['truncated'] = int(y[6])
             obj_struct['bbox'] = [int(y[0]) - 1,
                                   int(y[1]) - 1,
@@ -169,7 +169,7 @@ def write_voc_results_file(all_boxes, dataset):
                 # the VOCdevkit expects 1-based indices
                 for k in range(dets.shape[0]):
                     f.write('{:s} {:.3f} {:.1f} {:.1f} {:.1f} {:.1f}\n'.
-                            format(index[1], dets[k, -1],
+                            format(index, dets[k, -1],
                                    dets[k, 0] + 1, dets[k, 1] + 1,
                                    dets[k, 2] + 1, dets[k, 3] + 1))
 
