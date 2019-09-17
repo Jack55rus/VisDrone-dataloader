@@ -4,7 +4,7 @@ Original author: Francisco Massa
 https://github.com/fmassa/vision/blob/voc_dataset/torchvision/datasets/voc.py
 
 Updated by: Ellis Brown, Max deGroot
-Modified for VisDrone datset by Evgeny Markin
+Modified for the VisDrone dataset by Evgeny Markin
 
 """
 from .config import HOME
@@ -27,12 +27,11 @@ VISDRONE_ROOT = osp.join(HOME, "data/VISDRONE/")
 
 
 class VISDRONEAnnotationTransform(object):
-    """Transforms a VOC annotation into a Tensor of bbox coords and label index
+    """Transforms a VISDRONE annotation into a Tensor of bbox coords and label index
     Initilized with a dictionary lookup of classnames to indexes
 
     Arguments:
         class_to_ind (dict, optional): dictionary lookup of classnames -> indexes
-            (default: alphabetic indexing of VOC's 20 classes)
         keep_difficult (bool, optional): keep difficult instances or not
             (default: False)
         height (int): height

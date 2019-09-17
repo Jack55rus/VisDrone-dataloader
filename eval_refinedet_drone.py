@@ -129,7 +129,7 @@ def parse_rec(filename):
                                   int(y[1]) - 1,
                                   int(y[0]) + int(y[2]) - 1,
                                   int(y[1]) + int(y[3]) - 1]
-            obj_struct['difficult'] = 1 if int(y[7]) == 2 else 0
+            obj_struct['difficult'] = 1 if int(y[7]) == 2 else 0 # treated as difficult only if occlusion is 2 (heavy)
             objects.append(obj_struct)
     return objects
 
@@ -442,7 +442,7 @@ if __name__ == '__main__':
     print('len(labelmap) = ', len(labelmap))
     num_classes = len(labelmap) + 1                      # +1 for background; 13 in total considering "ignored" as a separate class
     print('in main() num_classes = ', num_classes)
-    net = build_refinedet('test', int(args.input_size), num_classes)            # initialize SSD
+    net = build_refinedet('test', int(args.input_size), num_classes)            # initialize refinedet
     net.load_state_dict(torch.load(args.trained_model))
     net.eval()
     print('Finished loading model!')
