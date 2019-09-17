@@ -113,7 +113,7 @@ class Timer(object):
             return self.diff
 
 
-def parse_erc(filename):
+def parse_rec(filename):
     objects = []
     dictOfclasses = {i: labelmap[i] for i in range(0, len(labelmap))}
     with open(filename,  'r') as f:
@@ -129,6 +129,7 @@ def parse_erc(filename):
                                   int(y[1]) - 1,
                                   int(y[0]) + int(y[2]) - 1,
                                   int(y[1]) + int(y[3]) - 1]
+            obj_struct['difficult'] = 1 if int(y[7]) == 2 else 0
             objects.append(obj_struct)
     return objects
 
@@ -163,7 +164,7 @@ def write_voc_results_file(all_boxes, dataset):
         with open(filename, 'wt') as f:
             for im_ind, index in enumerate(dataset.ids):
                 dets = all_boxes[cls_ind+1][im_ind]
-                if dets.size(0) == 0:
+                if len(dets) == 0:
                     continue
                 # the VOCdevkit expects 1-based indices
                 for k in range(dets.shape[0]):
@@ -303,11 +304,11 @@ cachedir: Directory for caching the annotations
     for imagename in imagenames:
         R = [obj for obj in recs[imagename] if obj['name'] == classname]
         bbox = np.array([x['bbox'] for x in R])
-        # difficult = np.array([x['difficult'] for x in R]).astype(np.bool)
+        difficult = np.array([x['difficult'] for x in R]).astype(np.bool)
         det = [False] * len(R)
         npos = npos + sum(~difficult)
         class_recs[imagename] = {'bbox': bbox,
-                                 # 'difficult': difficult,
+                                 'difficult': difficult,
                                  'det': det}
 
     # read dets
@@ -408,7 +409,7 @@ def test_net(save_folder, net, cuda, dataset, transform, top_k,
             dets = detections[0, j, :]
             mask = dets[:, 0].gt(0.).expand(5, dets.size(0)).t()
             dets = torch.masked_select(dets, mask).view(-1, 5)
-            if dets.size(0) == 0: # was dets == []
+            if len(dets) == 0: # was dets == []
                 continue
             boxes = dets[:, 1:]
             boxes[:, 0] *= w
