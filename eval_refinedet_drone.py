@@ -80,6 +80,7 @@ else:
                           # 'Main', '{:s}.txt')
 annopath = os.path.join(args.visdrone_root, 'VisDrone2019_val', 'annotations', '%s.txt')
 imgpath = os.path.join(args.visdrone_root, 'VisDrone2019_val', 'images', '%s.jpg')
+imgsetpath = os.path.join(args.visdrone_root, 'VisDrone2019_val', 'images')
 
 # YEAR = '2007'
 # devkit_path = args.visdrone_root + 'VOC' + YEAR
@@ -112,25 +113,6 @@ class Timer(object):
             return self.diff
 
 
-def parse_rec(filename):
-    """ Parse a PASCAL VOC xml file """
-    tree = ET.parse(filename)
-    objects = []
-    for obj in tree.findall('object'):
-        obj_struct = {}
-        obj_struct['name'] = obj.find('name').text
-        obj_struct['pose'] = obj.find('pose').text
-        obj_struct['truncated'] = int(obj.find('truncated').text)
-        obj_struct['difficult'] = int(obj.find('difficult').text)
-        bbox = obj.find('bndbox')
-        obj_struct['bbox'] = [int(bbox.find('xmin').text) - 1,
-                              int(bbox.find('ymin').text) - 1,
-                              int(bbox.find('xmax').text) - 1,
-                              int(bbox.find('ymax').text) - 1]
-        objects.append(obj_struct)
-
-    return objects
-
 def parse_erc(filename):
     objects = []
     dictOfclasses = {i: labelmap[i] for i in range(0, len(labelmap))}
@@ -142,6 +124,7 @@ def parse_erc(filename):
                 continue
             obj_struct = {}
             obj_struct['name'] = dictOfclasses[y[5]]
+            obj_struct['truncated'] = int(y[6])
             obj_struct['bbox'] = [int(y[0]) - 1,
                                   int(y[1]) - 1,
                                   int(y[0]) + int(y[2]) - 1,
@@ -201,7 +184,7 @@ def do_python_eval(output_dir='output', use_07=True):
     for i, cls in enumerate(labelmap):
         filename = get_voc_results_file_template(set_type, cls)
         rec, prec, ap = voc_eval(
-           filename, annopath, imgsetpath.format(set_type), cls, cachedir,
+           filename, annopath, imgsetpath, cls, cachedir,
            ovthresh=0.5, use_07_metric=use_07_metric)
         aps += [ap]
         print('AP for {} = {:.4f}'.format(cls, ap))
@@ -289,9 +272,14 @@ cachedir: Directory for caching the annotations
         os.mkdir(cachedir)
     cachefile = os.path.join(cachedir, 'annots.pkl')
     # read list of images
-    with open(imagesetfile, 'r') as f:
-        lines = f.readlines()
-    imagenames = [x.strip() for x in lines]
+    imagenames = list()
+    for filename in os.listdir(imagesetfile):
+        imagenames += [filename[0:-4]]
+
+    # with open(imagesetfile, 'r') as f:
+        # lines = f.readlines()
+    # imagenames = [x.strip() for x in lines]
+
     if not os.path.isfile(cachefile):
         # load annots
         recs = {}
@@ -315,11 +303,11 @@ cachedir: Directory for caching the annotations
     for imagename in imagenames:
         R = [obj for obj in recs[imagename] if obj['name'] == classname]
         bbox = np.array([x['bbox'] for x in R])
-        difficult = np.array([x['difficult'] for x in R]).astype(np.bool)
+        # difficult = np.array([x['difficult'] for x in R]).astype(np.bool)
         det = [False] * len(R)
         npos = npos + sum(~difficult)
         class_recs[imagename] = {'bbox': bbox,
-                                 'difficult': difficult,
+                                 # 'difficult': difficult,
                                  'det': det}
 
     # read dets
