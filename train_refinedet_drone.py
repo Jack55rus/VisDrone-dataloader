@@ -26,7 +26,7 @@ parser = argparse.ArgumentParser(
 train_set = parser.add_mutually_exclusive_group()
 parser.add_argument('--dataset', default='VISDRONE', choices=['VOC', 'COCO', 'VISDRONE'],
                     type=str, help='VOC, COCO or VISDRONE')
-parser.add_argument('--input_size', default='700', choices=['320', '512', '700'],
+parser.add_argument('--input_size', default='512', choices=['320', '512', '700'],
                     type=str, help='RefineDet320 or RefineDet512')
 parser.add_argument('--basenet', default='./weights/vgg16_reducedfc.pth',
                     help='Pretrained base model')
