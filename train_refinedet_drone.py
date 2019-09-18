@@ -26,7 +26,7 @@ parser = argparse.ArgumentParser(
 train_set = parser.add_mutually_exclusive_group()
 parser.add_argument('--dataset', default='VISDRONE', choices=['VOC', 'COCO', 'VISDRONE'],
                     type=str, help='VOC, COCO or VISDRONE')
-parser.add_argument('--input_size', default='700', choices=['320', '512'],
+parser.add_argument('--input_size', default='700', choices=['320', '512', '700'],
                     type=str, help='RefineDet320 or RefineDet512')
 parser.add_argument('--basenet', default='./weights/vgg16_reducedfc.pth',
                     help='Pretrained base model')
@@ -140,10 +140,12 @@ def train():
     arm_conf_loss = 0
     odm_loc_loss = 0
     odm_conf_loss = 0
+    best_loss = 1000 # suppose a large number first
     epoch = 0
     print('Loading the dataset...')
 
-    epoch_size = len(dataset) // args.batch_size
+    epoch_size = len(dataset) // args.batch_size  # number of iterations per epoch
+    print('Number od iters per epoch = ', epoch_size)
     print('Training RefineDet on:', dataset.name)
     print('Using the specified args:')
     print(args)
@@ -210,18 +212,18 @@ def train():
         arm_conf_loss += arm_loss_c.item()
         odm_loc_loss += odm_loss_l.item()
         odm_conf_loss += odm_loss_c.item()
-        period = 1000
+        period = epoch_size
         arm_cumul += (arm_loss_l.item() + arm_loss_c.item())
         odm_cumul += (odm_loss_l.item() + odm_loss_c.item())
 
+        # I temporarily replaced printing mean loss over the period with printing loss over the epoch
         if iteration % period == 0 and iteration != 0:
             mean_arm_loss = arm_cumul/period
             mean_odm_loss = odm_cumul/period
             mean_total_loss = mean_arm_loss + mean_odm_loss
-            print('Cumul ARM loss = %.4f' % mean_arm_loss, 'Cumul ODM loss = %.4f' % mean_odm_loss, 'total loss = %.4f' % mean_total_loss , sep = ' | ')
+            print('\Epoch # ', iteration // epoch_size, '\nCumul ARM loss = %.4f' % mean_arm_loss, 'Cumul ODM loss = %.4f' % mean_odm_loss, 'total loss = %.4f' %  mean_total_loss , sep = ' | ')
             arm_cumul = 0
             odm_cumul = 0
-
 
         if iteration % 100 == 0:
             print('timer: %.4f sec.' % (t1 - t0))
@@ -232,11 +234,15 @@ def train():
             update_vis_plot(iteration, arm_loss_l.data[0], arm_loss_c.data[0],
                             iter_plot, epoch_plot, 'append')
 
-        if iteration != 0 and iteration % 5000 == 0:
+        
+        if iteration != 0 and iteration % 5033 == 0: # if bs = 9, save each 7 epochs
             print('Saving state, iter:', iteration)
             torch.save(refinedet_net.state_dict(), args.save_folder 
             + '/RefineDet{}_{}_{}.pth'.format(args.input_size, args.dataset, 
             repr(iteration)))
+        
+
+
     torch.save(refinedet_net.state_dict(), args.save_folder 
             + '/RefineDet{}_{}_final.pth'.format(args.input_size, args.dataset))
 

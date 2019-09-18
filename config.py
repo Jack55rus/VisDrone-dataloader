@@ -138,7 +138,7 @@ visdrone_refinedet = {
         'num_classes': 13,
         'lr_steps': (40000, 60000, 80000),
         'max_iter': 100000,
-        'feature_maps': [64, 32, 16, 8],
+        'feature_maps': [80, 40, 20, 10],
         'min_dim': 700,
         'steps': [8, 16, 32, 64],
         'min_sizes': [32, 64, 128, 256],
@@ -148,5 +148,4 @@ visdrone_refinedet = {
         'clip': True,
         'name': 'RefineDet_VOC_700',
     }
-
 }
