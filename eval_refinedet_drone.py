@@ -42,7 +42,7 @@ def str2bool(v):
 parser = argparse.ArgumentParser(
     description='Single Shot MultiBox Detector Evaluation')
 parser.add_argument('--trained_model',
-                    default='weights/RefineDet320_VISDRONE_final.pth', type=str,
+                    default='weights/RefineDet512_VISDRONE_final.pth', type=str,
                     help='Trained state_dict file path to open')
 parser.add_argument('--save_folder', default='eval/', type=str,
                     help='File path to save results')
@@ -56,7 +56,7 @@ parser.add_argument('--visdrone_root', default=VISDRONE_ROOT,
                     help='Location of VOC root directory')
 parser.add_argument('--cleanup', default=True, type=str2bool,
                     help='Cleanup and remove results files following eval')
-parser.add_argument('--input_size', default='320', choices=['320', '512'],
+parser.add_argument('--input_size', default='512', choices=['320', '512'],
                     type=str, help='RefineDet320 or RefineDet512')
 
 args = parser.parse_args()

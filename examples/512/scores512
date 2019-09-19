@@ -1,0 +1,10 @@
+AP for pedestrian = 0.3050
+AP for people = 0.2291
+AP for bicycle = 0.1323
+AP for car = 0.7170
+AP for van = 0.4337
+AP for truck = 0.3571
+AP for tricycle = 0.2461
+AP for awningtri = 0.1648
+AP for bus = 0.4725
+AP for motorb = 0.3215
