@@ -130,38 +130,68 @@ class ShuffleNetV2(nn.Module):
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         
         self.features = []
+        self.features3 = []
+        self.features4 = []
         # building inverted residual blocks
         for idxstage in range(len(self.stage_repeats)):
             numrepeat = self.stage_repeats[idxstage]
             output_channel = self.stage_out_channels[idxstage+2]
             for i in range(numrepeat):
-                if i == 0:
+                # if i == 0:
+	            #inp, oup, stride, benchmodel):
+                    # self.features.append(InvertedResidual(input_channel, output_channel, 2, 2))
+                # else:
+                    # self.features.append(InvertedResidual(input_channel, output_channel, 1, 1))
+                if i == 0 and idxstage == 0:
 	            #inp, oup, stride, benchmodel):
                     self.features.append(InvertedResidual(input_channel, output_channel, 2, 2))
-                else:
+                elif i != 0 and idxstage == 0:
                     self.features.append(InvertedResidual(input_channel, output_channel, 1, 1))
+
+                elif i == 0 and idxstage == 1:
+	            #inp, oup, stride, benchmodel):
+                    self.features3.append(InvertedResidual(input_channel, output_channel, 2, 2))
+                elif i != 0 and idxstage == 1:
+                    self.features3.append(InvertedResidual(input_channel, output_channel, 1, 1))
+
+                elif i == 0 and idxstage == 2:
+	            #inp, oup, stride, benchmodel):
+                    self.features4.append(InvertedResidual(input_channel, output_channel, 2, 2))
+                elif i != 0 and idxstage == 2:
+                    self.features4.append(InvertedResidual(input_channel, output_channel, 1, 1))
                 input_channel = output_channel
                 
                 
         # make it nn.Sequential
         self.features = nn.Sequential(*self.features)
-
+        self.features3 = nn.Sequential(*self.features3)
+        self.features4 = nn.Sequential(*self.features4)
         # building last several layers
-        self.conv_last      = conv_1x1_bn(input_channel, self.stage_out_channels[-1])
-        self.globalpool = nn.Sequential(nn.AvgPool2d(int(input_size/32)))              
+        # self.conv_last      = conv_1x1_bn(input_channel, self.stage_out_channels[-1])
+        # self.globalpool = nn.Sequential(nn.AvgPool2d(int(input_size/32)))              
     
 	# building classifier
-        self.classifier = nn.Sequential(nn.Linear(self.stage_out_channels[-1], n_class))
+        # self.classifier = nn.Sequential(nn.Linear(self.stage_out_channels[-1], n_class))
 
     def forward(self, x):
         x = self.conv1(x)
+        # print('after conv1 shape = ', x.shape)
         x = self.maxpool(x)
+        # print('after maxpool shape = ', x.shape)
         x = self.features(x)
-        x = self.conv_last(x)
-        x = self.globalpool(x)
-        x = x.view(-1, self.stage_out_channels[-1])
-        x = self.classifier(x)
-        return x
+        # xs1 = x
+        # print('after features shape = ', x.shape)
+        x = self.features3(x)
+        xs2 = x
+        x = self.features4(x)
+        xs3 = x
+        # x = self.conv_last(x)
+        # xs3 = x
+        # print('after conv_last shape = ', x.shape)
+        # x = self.globalpool(x)
+        # x = x.view(-1, self.stage_out_channels[-1])
+        # x = self.classifier(x)
+        return (x, xs2, xs3)
 
 def shufflenetv2(width_mult=1.):
     model = ShuffleNetV2(width_mult=width_mult)

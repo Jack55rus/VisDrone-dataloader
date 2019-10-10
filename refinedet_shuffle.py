@@ -12,6 +12,18 @@ from collections import OrderedDict
 from torch.nn import init
 import math
 
+import shutil
+import torch.nn.parallel
+import torch.backends.cudnn as cudnn
+import torch.distributed as dist
+import torch.optim
+import torch.utils.data
+import torch.utils.data.distributed
+import torchvision.transforms as transforms
+import torchvision.datasets as datasets
+import torchvision.models as models
+from ShuffleNetV2 import shufflenetv2
+
 
 class RefineDet(nn.Module):
     """Single Shot Multibox Architecture
@@ -31,7 +43,7 @@ class RefineDet(nn.Module):
         head: "multibox head" consists of loc and conf conv layers
     """
 
-    def __init__(self, phase, size, base, extras, ARM, ODM, TCB, num_classes):
+    def __init__(self, phase, size, base, ARM, ODM, TCB, num_classes):
         super(RefineDet, self).__init__()
         self.phase = phase
         self.num_classes = num_classes
@@ -46,10 +58,14 @@ class RefineDet(nn.Module):
         self.size = size
 
         # SSD network
-        self.shuffle = nn.ModuleList(base)
+        self.shuffle = base
+        self.extra_conv_1 = nn.Conv2d(464, 928, kernel_size=3, stride=2, padding=1)
+        self.deconv_st3 = nn.ConvTranspose2d(232, 232, 2, 2)
+        self.deconv_st4 = nn.ConvTranspose2d(464, 464, 2, 2)
+        self.deconv_extra = nn.ConvTranspose2d(928, 928, 2, 2)
         # Layer learns to scale the l2 normalized features from conv4_3
-        self.extras = nn.ModuleList(extras)
-
+        self.stage2_L2Norm = L2Norm(116, 10)
+        self.stage3_L2Norm = L2Norm(232, 8)
         self.arm_loc = nn.ModuleList(ARM[0])
         self.arm_conf = nn.ModuleList(ARM[1])
         self.odm_loc = nn.ModuleList(ODM[0])
@@ -82,49 +98,37 @@ class RefineDet(nn.Module):
                     2: localization layers, Shape: [batch,num_priors*4]
                     3: priorbox layers, Shape: [2,num_priors*4]
         """
+        # forward_start = time.time()
         sources = list()
+        
         tcb_source = list()
         arm_loc = list()
         arm_conf = list()
         odm_loc = list()
         odm_conf = list()
         # print('self.priors shape = ', self.priors.shape) # debug
-        print(self.shuffle)
-        for k in range(19):
-            x = self.shuffle[k](x)
-            if 5 == k:
-                sources.append(x)
-            elif 13 == k:
-                sources.append(x)
-            elif 17 == k:
-                sources.append(x)
-            elif 18 == k:
-                sources.append(x)
-
+        # print(self.shuffle)
+        
+        # sources = [self.shuffle(x)[1], self.shuffle(x)[2], self.shuffle(x)[3]]
+        sources = [self.shuffle(x)[1], self.shuffle(x)[2]] # 48x48x232 / 24x24x464
+        
+        extra_apply = self.extra_conv_1(sources[1]) # 12x12x928
+        extra_apply = F.relu(extra_apply, inplace=True)
+        sources.append(extra_apply) # sources: 48x48x232 / 24x24x464 / 12x12x928
+        
+        sources[0] = self.deconv_st3(sources[0]) # sources[0]: 96x96x232
+        sources[1] = self.deconv_st4(sources[1]) # sources[1]: 48x48x464
+        sources[2] = self.deconv_extra(sources[2]) # sources[2]: 24x24x928
         """
-        # apply vgg up to conv4_3 relu and conv5_3 relu
-        for k in range(30):
-            x = self.vgg[k](x)
-            if 22 == k:
-                s = self.conv4_3_L2Norm(x)
-                sources.append(s)
-            elif 29 == k:
-                s = self.conv5_3_L2Norm(x)
-                sources.append(s)
-        # apply vgg up to fc7
-        for k in range(30, len(self.vgg)):
-            x = self.vgg[k](x)
-        sources.append(x)
+        extra_conv_1 = nn.Conv2d(1024, 256, kernel_size=1)
+        extra_conv_2 = nn.Conv2d(256, 512, kernel_size=3, stride=2, padding=1)
+        extra_apply = extra_conv_1(sources[2])
+        extra_apply = extra_conv_2(extra_apply)
+        extra_apply = F.relu(extra_apply, inplace=True)
+        sources.append(extra_apply)
         """
-
-        """
-        # apply extra layers and cache source layer outputs
-        for k, v in enumerate(self.extras):
-            x = F.relu(v(x), inplace=True)
-            if k % 2 == 1:
-                sources.append(x)
-        """
-
+        # print('self.shuffle(x)[1].shape = ', self.shuffle(x)[1].shape)
+        # print('self.shuffle(x)[2].shape = ', self.shuffle(x)[2].shape)
         # apply ARM and ODM to source layers
         for (x, l, c) in zip(sources, self.arm_loc, self.arm_conf):
             arm_loc.append(l(x).permute(0, 2, 3, 1).contiguous())
@@ -137,15 +141,20 @@ class RefineDet(nn.Module):
         p = None
         for k, v in enumerate(sources[::-1]):
             s = v
+            # print('s.shape = ', s.shape)
             for i in range(3):
-                s = self.tcb0[(3-k)*3 + i](s)
+                s = self.tcb0[(2-k)*3 + i](s)
                 #print(s.size())
             if k != 0:
+                # print('entered tcb1; k = ', k)
                 u = p
-                u = self.tcb1[3-k](u)
+                # print('s shape = ', s.shape)
+                # print('p shape = ', p.shape)
+                u = self.tcb1[2-k](u)
+                # print('u shape = ', u.shape)
                 s += u
             for i in range(3):
-                s = self.tcb2[(3-k)*3 + i](s)
+                s = self.tcb2[(2-k)*3 + i](s)
             p = s
             tcb_source.append(s)
         #print([x.size() for x in tcb_source])
@@ -160,13 +169,14 @@ class RefineDet(nn.Module):
         #print(arm_loc.size(), arm_conf.size(), odm_loc.size(), odm_conf.size())
         # print(self.priors.type(type(x.data))) # debug 
         # print(self.priors.shape) # debug
+        # det_time = 0
         if self.phase == "test":
             # print('arm_loc shape ', arm_loc.shape)
             # print('arm_conf shape ', arm_conf.shape)
             # print('odm_loc shape ', odm_loc.shape)
             # print('odm_conf shape ', odm_conf.shape)
             #print(loc, conf)
-            
+            # detect_start = time.time()
             output = self.detect(
                 arm_loc.view(arm_loc.size(0), -1, 4),           # arm loc preds
                 self.softmax(arm_conf.view(arm_conf.size(0), -1,
@@ -176,6 +186,8 @@ class RefineDet(nn.Module):
                              self.num_classes)),                # odm conf preds
                 self.priors.type(type(x.data))                  # default boxes
             )
+            # detect_end = time.time()
+            # det_time = detect_end - detect_start
         else:
             output = (
                 arm_loc.view(arm_loc.size(0), -1, 4),
@@ -184,6 +196,9 @@ class RefineDet(nn.Module):
                 odm_conf.view(odm_conf.size(0), -1, self.num_classes),
                 self.priors
             )
+        # forward_end = time.time()
+        # forward_time = forward_end - forward_start - det_time
+        # print(forward_time)
         return output
 
     def load_weights(self, base_file):
@@ -199,79 +214,34 @@ class RefineDet(nn.Module):
 
 # This function is derived from torchvision VGG make_layers()
 # https://github.com/pytorch/vision/blob/master/torchvision/models/vgg.py
-def vgg(cfg, i, batch_norm=False):
-    layers = []
-    in_channels = i
-    for v in cfg:
-        if v == 'M':
-            layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
-        elif v == 'C':
-            layers += [nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True)]
-        else:
-            conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
-            if batch_norm:
-                layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
-            else:
-                layers += [conv2d, nn.ReLU(inplace=True)]
-            in_channels = v
-    pool5 = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
-    conv6 = nn.Conv2d(512, 1024, kernel_size=3, padding=3, dilation=3)
-    conv7 = nn.Conv2d(1024, 1024, kernel_size=1)
-    layers += [pool5, conv6,
-               nn.ReLU(inplace=True), conv7, nn.ReLU(inplace=True)]
-    return layers
 
-
-def add_extras(cfg, size, i, batch_norm=False):
-    # Extra layers added to VGG for feature scaling
-    layers = []
-    in_channels = i
-    flag = False
-    for k, v in enumerate(cfg):
-        if in_channels != 'S':
-            if v == 'S':
-                layers += [nn.Conv2d(in_channels, cfg[k + 1],
-                           kernel_size=(1, 3)[flag], stride=2, padding=1)]
-            else:
-                layers += [nn.Conv2d(in_channels, v, kernel_size=(1, 3)[flag])]
-            flag = not flag
-        in_channels = v
-    return layers
-
-def arm_multibox(vgg, extra_layers, cfg):
+def arm_multibox_shuffle():
     arm_loc_layers = []
     arm_conf_layers = []
-    vgg_source = [21, 28, -2]
-    for k, v in enumerate(vgg_source):
-        arm_loc_layers += [nn.Conv2d(vgg[v].out_channels,
-                                 cfg[k] * 4, kernel_size=3, padding=1)]
-        arm_conf_layers += [nn.Conv2d(vgg[v].out_channels,
-                        cfg[k] * 2, kernel_size=3, padding=1)]
-    for k, v in enumerate(extra_layers[1::2], 3):
-        arm_loc_layers += [nn.Conv2d(v.out_channels, cfg[k]
-                                 * 4, kernel_size=3, padding=1)]
-        arm_conf_layers += [nn.Conv2d(v.out_channels, cfg[k]
-                                  * 2, kernel_size=3, padding=1)]
+    in_channels = [232, 464, 928]
+    for i in range(len(in_channels)):
+        arm_loc_layers += [nn.Conv2d(in_channels[i],
+                                 12, kernel_size=3, padding=1)]
+        arm_conf_layers += [nn.Conv2d(in_channels[i],
+                        6, kernel_size=3, padding=1)]
     return (arm_loc_layers, arm_conf_layers)
 
-def odm_multibox(vgg, extra_layers, cfg, num_classes):
+def odm_multibox_shuffle(num_classes):
     odm_loc_layers = []
     odm_conf_layers = []
-    vgg_source = [21, 28, -2]
-    for k, v in enumerate(vgg_source):
-        odm_loc_layers += [nn.Conv2d(256, cfg[k] * 4, kernel_size=3, padding=1)]
-        odm_conf_layers += [nn.Conv2d(256, cfg[k] * num_classes, kernel_size=3, padding=1)]
-    for k, v in enumerate(extra_layers[1::2], 3):
-        odm_loc_layers += [nn.Conv2d(256, cfg[k] * 4, kernel_size=3, padding=1)]
-        odm_conf_layers += [nn.Conv2d(256, cfg[k] * num_classes, kernel_size=3, padding=1)]
+    num_odm_ch = 3
+    for i in range(num_odm_ch):
+        odm_loc_layers += [nn.Conv2d(256, 12, kernel_size=3, padding=1)]
+        odm_conf_layers += [nn.Conv2d(256, 3 * num_classes, kernel_size=3, padding=1)]
     return (odm_loc_layers, odm_conf_layers)
 
-def add_tcb(cfg):
+def add_tcb_shuffle():
     feature_scale_layers = []
     feature_upsample_layers = []
     feature_pred_layers = []
-    for k, v in enumerate(cfg):
-        feature_scale_layers += [nn.Conv2d(cfg[k], 256, 3, padding=1),
+    feeding_ch = [232, 464, 928]
+    for i in range(len(feeding_ch)):
+        feature_scale_layers += [nn.Conv2d(feeding_ch[i], 256, 3, padding=1),
                                  nn.ReLU(inplace=True),
                                  nn.Conv2d(256, 256, 3, padding=1)
         ]
@@ -279,142 +249,12 @@ def add_tcb(cfg):
                                 nn.Conv2d(256, 256, 3, padding=1),
                                 nn.ReLU(inplace=True)
         ]
-        if k != len(cfg) - 1:
+        if i != len(feeding_ch) - 1:
             feature_upsample_layers += [nn.ConvTranspose2d(256, 256, 2, 2)]
     return (feature_scale_layers, feature_upsample_layers, feature_pred_layers)
 
-base = {
-    '320': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'C', 512, 512, 512, 'M',
-            512, 512, 512],
-    '512': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'C', 512, 512, 512, 'M',
-            512, 512, 512],
-    '768': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'C', 512, 512, 512, 'M',
-            512, 512, 512],
-    '960': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'C', 512, 512, 512, 'M',
-            512, 512, 512],
-}
-extras = {
-    '320': [256, 'S', 512],
-    '512': [256, 'S', 512],
-    '768': [256, 'S', 512],
-    '960': [256, 'S', 512],
-}
-mbox = {
-    '320': [3, 3, 3, 3],  # number of boxes per feature map location
-    '512': [3, 3, 3, 3],  # number of boxes per feature map location
-    '768': [3, 3, 3, 3],
-    '960': [3, 3, 3, 3],
-}
 
-tcb = {
-    '320': [512, 512, 1024, 512],
-    '512': [512, 512, 1024, 512],
-    '768': [512, 512, 1024, 512],
-    '960': [512, 512, 1024, 512],
-}
-
-# shuffle
-def conv_bn(inp, oup, stride):
-    return nn.Sequential(
-        nn.Conv2d(inp, oup, 3, stride, 1, bias=False),
-        nn.BatchNorm2d(oup),
-        nn.ReLU(inplace=True)
-    )
-
-
-def conv_1x1_bn(inp, oup):
-    return nn.Sequential(
-        nn.Conv2d(inp, oup, 1, 1, 0, bias=False),
-        nn.BatchNorm2d(oup),
-        nn.ReLU(inplace=True)
-    )
-
-def channel_shuffle(x, groups):
-    batchsize, num_channels, height, width = x.data.size()
-
-    channels_per_group = num_channels // groups
-    
-    # reshape
-    x = x.view(batchsize, groups, 
-        channels_per_group, height, width)
-
-    x = torch.transpose(x, 1, 2).contiguous()
-
-    # flatten
-    x = x.view(batchsize, -1, height, width)
-
-    return x
-    
-class InvertedResidual(nn.Module):
-    def __init__(self, inp, oup, stride, benchmodel):
-        super(InvertedResidual, self).__init__()
-        self.benchmodel = benchmodel
-        self.stride = stride
-        assert stride in [1, 2]
-
-        oup_inc = oup//2
-        
-        if self.benchmodel == 1:
-            #assert inp == oup_inc
-        	self.banch2 = nn.Sequential(
-                # pw
-                nn.Conv2d(oup_inc, oup_inc, 1, 1, 0, bias=False),
-                nn.BatchNorm2d(oup_inc),
-                nn.ReLU(inplace=True),
-                # dw
-                nn.Conv2d(oup_inc, oup_inc, 3, stride, 1, groups=oup_inc, bias=False),
-                nn.BatchNorm2d(oup_inc),
-                # pw-linear
-                nn.Conv2d(oup_inc, oup_inc, 1, 1, 0, bias=False),
-                nn.BatchNorm2d(oup_inc),
-                nn.ReLU(inplace=True),
-            )                
-        else:                  
-            self.banch1 = nn.Sequential(
-                # dw
-                nn.Conv2d(inp, inp, 3, stride, 1, groups=inp, bias=False),
-                nn.BatchNorm2d(inp),
-                # pw-linear
-                nn.Conv2d(inp, oup_inc, 1, 1, 0, bias=False),
-                nn.BatchNorm2d(oup_inc),
-                nn.ReLU(inplace=True),
-            )        
-    
-            self.banch2 = nn.Sequential(
-                # pw
-                nn.Conv2d(inp, oup_inc, 1, 1, 0, bias=False),
-                nn.BatchNorm2d(oup_inc),
-                nn.ReLU(inplace=True),
-                # dw
-                nn.Conv2d(oup_inc, oup_inc, 3, stride, 1, groups=oup_inc, bias=False),
-                nn.BatchNorm2d(oup_inc),
-                # pw-linear
-                nn.Conv2d(oup_inc, oup_inc, 1, 1, 0, bias=False),
-                nn.BatchNorm2d(oup_inc),
-                nn.ReLU(inplace=True),
-            )
-          
-    @staticmethod
-    def _concat(x, out):
-        # concatenate along channel axis
-        return torch.cat((x, out), 1)        
-
-    def forward(self, x):
-        if 1==self.benchmodel:
-            x1 = x[:, :(x.shape[1]//2), :, :]
-            x2 = x[:, (x.shape[1]//2):, :, :]
-            out = self._concat(x1, self.banch2(x2))
-        elif 2==self.benchmodel:
-            out = self._concat(self.banch1(x), self.banch2(x))
-
-        return channel_shuffle(out, 2)
-
-
-def shufflev2(width_mult=1.):
-         
-
-
-
+###################################################################################################
 
 def build_refinedet(phase, size=320, num_classes=13):
     if phase != "test" and phase != "train":
@@ -423,13 +263,12 @@ def build_refinedet(phase, size=320, num_classes=13):
     if size != 320 and size != 512 and size != 768 and size != 960:
         print("ERROR: You specified size " + repr(size) + ". However, " +
               "currently only RefineDet320 and RefineDet512 is supported!")
-        return
-    # base_ = vgg(base[str(size)], 3)
-    base_ = shufflev2(1.)
-    extras_ = add_extras(extras[str(size)], size, 1024)
-    ARM_ = arm_multibox(base_, extras_, mbox[str(size)])
+        return 
+    base_ = shufflenetv2(1.)
+    # extras_ = add_extras(extras[str(size)], size, 1024)
+    ARM_ = arm_multibox_shuffle()
     print('passed # classes = ', num_classes)
-    ODM_ = odm_multibox(base_, extras_, mbox[str(size)], num_classes)
-    TCB_ = add_tcb(tcb[str(size)])
+    ODM_ = odm_multibox_shuffle(num_classes)
+    TCB_ = add_tcb_shuffle()
     print('size = ', size) # debug
-    return RefineDet(phase, size, base_, extras_, ARM_, ODM_, TCB_, num_classes)
+    return RefineDet(phase, size, base_, ARM_, ODM_, TCB_, num_classes)
